@@ -1,5 +1,5 @@
 use crate::stats;
-use num_traits::{Num, NumCast};
+use num_traits::{Num, NumCast, ToPrimitive};
 
 /// Compute the Simple Moving Average (SMA) of a data window.
 ///
@@ -106,6 +106,85 @@ where
     }
 
     data.windows(window_len).map(ema).collect()
+}
+
+/// Compute the Volume Weighted Moving Average (VWMA) of a data window.
+///
+/// Optimized for *streaming / online* workflows where you only need the
+/// most‑recent window’s volume weighted average. For full‑series (batch)
+/// smoothing, see [`crate::smoothing::ema_series`].
+///
+/// NOTE: The length of the volume window must match the length
+/// of the data window being smoothed, else returns zero.
+///
+/// # Examples
+/// ```
+/// use quant_mathema::smoothing::vwma;
+///
+/// let price = [100.0, 101.0, 102.0];
+/// let volume = [10, 20, 30];
+///
+/// let vwma_value = vwma(&price, &volume);
+/// ```
+pub fn vwma<T, V>(data_window: &[T], volume_window: &[V]) -> f64
+where
+    T: ToPrimitive,
+    V: ToPrimitive,
+{
+    if data_window.len() != volume_window.len() || data_window.is_empty() {
+        return 0.0;
+    }
+
+    let volume_sum = volume_window
+        .iter()
+        .fold(f64::default(), |sum, x| sum + (x.to_f64().unwrap_or(0.0)));
+
+    if volume_sum > 0.0 {
+        data_window
+            .iter()
+            .zip(volume_window.iter())
+            .map(|(d, v)| d.to_f64().unwrap_or(0.0) * v.to_f64().unwrap_or(0.0))
+            .sum::<f64>()
+            / volume_sum
+    } else {
+        data_window
+            .last()
+            .map(|x| x.to_f64().unwrap_or(0.0))
+            .unwrap_or(0.0)
+    }
+}
+
+/// Computes the Volume Weighted Moving Average (VWMA) for
+/// every sliding window for a given window length.
+///
+/// `vwma_series` is ideal for *batch* analysis and plotting.
+/// For real‑time pipelines, prefer [`crate::smoothing::vwma`].
+///
+/// NOTE: The length of the volume data must match the length
+/// of the data being smoothed, else returns empty `Vec`.
+///
+/// # Examples
+/// ```
+/// use quant_mathema::smoothing::vwma_series;
+///
+/// let price = [100.0, 101.0, 102.0, 103.0];
+/// let volume = [10, 20, 30, 40];
+///
+/// let vwma_values = vwma_series(&price, &volume, 3);
+/// ```
+pub fn vwma_series<T, V>(data: &[T], volume_data: &[V], window_len: usize) -> Vec<f64>
+where
+    T: ToPrimitive + Copy,
+    V: ToPrimitive + Copy,
+{
+    if data.len() != volume_data.len() || data.is_empty() {
+        return Vec::new();
+    }
+
+    data.windows(window_len)
+        .zip(volume_data.windows(window_len))
+        .map(|(data_window, volume_window)| vwma(data_window, volume_window))
+        .collect()
 }
 
 #[cfg(test)]
@@ -387,6 +466,129 @@ mod tests {
     fn test_ema_series_window_zero() {
         let data = [1.0, 2.0, 3.0];
         let result = ema_series(&data, 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_vwma_basic_integer_volume() {
+        let price = [100.0, 101.0, 102.0];
+        let volume = [10, 20, 30];
+
+        let result = vwma(&price, &volume);
+        let expected = 101.333333;
+        assert_close(result, expected, 1e-6);
+    }
+
+    #[test]
+    fn test_vwma_with_floating_volume() {
+        let price = [1.0, 2.0, 3.0];
+        let volume = [0.1, 0.2, 0.7];
+
+        let result = vwma(&price, &volume);
+        let expected = 2.6;
+        assert_close(result, expected, 1e-6);
+    }
+
+    #[test]
+    fn test_vwma_equal_weights_equals_sma() {
+        let price = [10.0, 20.0, 30.0];
+        let volume = [1, 1, 1];
+
+        let result = vwma(&price, &volume);
+        let expected = 20.0;
+        assert_close(result, expected, 1e-6);
+    }
+
+    #[test]
+    fn test_vwma_zero_volume() {
+        let price = [100.0, 101.0, 102.0];
+        let volume = [0, 0, 0];
+
+        let result = vwma(&price, &volume);
+        assert_eq!(result, 102.0);
+    }
+
+    #[test]
+    fn test_vwma_mismatched_lengths() {
+        let price = [1.0, 2.0];
+        let volume = [10];
+
+        let result = vwma(&price, &volume);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_vwma_empty_input() {
+        let price: [f64; 0] = [];
+        let volume: [i32; 0] = [];
+
+        let result = vwma(&price, &volume);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_vwma_series_basic_integer() {
+        let price = [100.0, 101.0, 102.0, 103.0];
+        let volume = [10, 20, 30, 40];
+
+        let result = vwma_series(&price, &volume, 3);
+        let expected = [101.333333, 102.222222];
+
+        for (res, exp) in result.iter().zip(expected.iter()) {
+            assert_close(*res, *exp, 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_vwma_series_floating_volume() {
+        let price = [1.0, 2.0, 3.0, 4.0];
+        let volume = [0.1, 0.2, 0.7, 1.0];
+
+        let result = vwma_series(&price, &volume, 3);
+        let expected = [2.6, 3.4210526];
+
+        for (res, exp) in result.iter().zip(expected.iter()) {
+            assert_close(*res, *exp, 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_vwma_series_equal_volume_is_sma() {
+        let price = [1.0, 2.0, 3.0, 4.0];
+        let volume = [1.0, 1.0, 1.0, 1.0];
+
+        let result = vwma_series(&price, &volume, 3);
+        let expected = [2.0, 3.0];
+
+        for (res, exp) in result.iter().zip(expected.iter()) {
+            assert_close(*res, *exp, 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_vwma_series_mismatched_lengths() {
+        let price = [1.0, 2.0, 3.0];
+        let volume = [1.0, 2.0];
+
+        let result = vwma_series(&price, &volume, 2);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_vwma_series_window_too_large() {
+        let price = [1.0, 2.0];
+        let volume = [1.0, 2.0];
+
+        let result = vwma_series(&price, &volume, 3);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_vwma_series_empty_input() {
+        let price: [f64; 0] = [];
+        let volume: [f64; 0] = [];
+
+        let result = vwma_series(&price, &volume, 3);
         assert!(result.is_empty());
     }
 }

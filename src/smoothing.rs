@@ -30,6 +30,7 @@ where
 /// # Examples
 /// ```
 /// use quant_mathema::smoothing::sma_series;
+///
 /// let data = [1.0, 2.0, 3.0, 4.0];
 /// assert_eq!(sma_series(&data, 2), vec![1.5, 2.5, 3.5]);
 /// ```
@@ -42,6 +43,69 @@ where
     }
 
     data.windows(window_len).map(sma).collect()
+}
+
+/// Compute the Exponential Moving Average (EMA) of a data window.
+///
+/// Optimized for *streaming / online* workflows where you only need the
+/// most‑recent window’s average. For full‑series (batch) smoothing, see
+/// [`crate::smoothing::ema_series`].
+///
+/// # Examples
+/// ```
+/// use quant_mathema::smoothing::ema;
+///
+/// let window = [2.0, 4.0, 6.0, 8.0];
+/// let ema_value: f64 = ema(&window);
+/// assert!((ema(&window) - 5.648).abs() < 1e-6);
+/// ```
+pub fn ema<T>(data_window: &[T]) -> f64
+where
+    T: Num + NumCast + Copy,
+{
+    let len = data_window.len();
+    if len == 0 {
+        return 0.0;
+    }
+
+    let alpha = 2.0 / (len as f64 + 1.0);
+
+    data_window
+        .iter()
+        .map(|x| NumCast::from(*x).unwrap_or(0.0))
+        .skip(1)
+        .fold(NumCast::from(data_window[0]).unwrap_or(0.0), |ema, x| {
+            alpha * x + (1.0 - alpha) * ema
+        })
+}
+
+/// Computes the Exponential Moving Average (EMA) for
+/// every sliding window for a given window length.
+///
+/// `ema_series` is ideal for *batch* analysis and plotting.
+/// For real‑time pipelines, prefer [`crate::smoothing::ema`].
+///
+/// # Examples
+/// ```
+/// use quant_mathema::smoothing::ema_series;
+///
+/// let data = [1.0, 2.0, 3.0, 4.0];
+/// let result = ema_series(&data, 2);
+/// let expected = vec![1.6666667, 2.6666667, 3.6666667];
+///
+/// for (a, b) in result.iter().zip(expected.iter()) {
+///     assert!((a - b).abs() < 1e-6);
+/// }
+/// ```
+pub fn ema_series<T>(data: &[T], window_len: usize) -> Vec<f64>
+where
+    T: Num + NumCast + Copy,
+{
+    if window_len == 0 || data.len() < window_len {
+        return Vec::new();
+    }
+
+    data.windows(window_len).map(ema).collect()
 }
 
 #[cfg(test)]
@@ -213,5 +277,116 @@ mod tests {
                 diff
             );
         }
+    }
+
+    #[test]
+    fn test_ema_basic_float() {
+        let window = [2.0, 4.0, 6.0, 8.0];
+        let result = ema(&window);
+        let expected = 5.648;
+        assert_close(result, expected, 1e-6);
+    }
+
+    #[test]
+    fn test_ema_single_element() {
+        let window = [42.0];
+        let result: f64 = ema(&window);
+        assert_eq!(result, 42.0);
+    }
+
+    #[test]
+    fn test_ema_empty() {
+        let window: [f64; 0] = [];
+        let result: f64 = ema(&window);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_ema_two_elements() {
+        let window = [10.0, 20.0];
+        let alpha = 2.0 / (2.0 + 1.0);
+        let expected = alpha * 20.0 + (1.0 - alpha) * 10.0;
+        let result = ema(&window);
+        assert_close(result, expected, 1e-6);
+    }
+
+    #[test]
+    fn test_ema_i32_integer_input() {
+        let window = [2, 4, 6, 8];
+        let result: f64 = ema(&window);
+        assert_eq!(result, 5.648);
+    }
+
+    #[test]
+    fn test_ema_longer_window() {
+        let window = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let result = ema(&window);
+
+        let expected = 3.964836;
+        assert_close(result, expected, 1e-6);
+    }
+
+    #[test]
+    fn test_ema_series_basic_float() {
+        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = ema_series(&data, 3);
+        let expected = [2.25, 3.25, 4.25];
+
+        assert_eq!(result.len(), expected.len());
+        for (res, exp) in result.iter().zip(expected.iter()) {
+            assert_close(*res, *exp, 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_ema_series_int() {
+        let data = [10, 20, 30, 40, 50, 60];
+        let result = ema_series(&data, 3);
+        let expected = [22.5, 32.5, 42.5, 52.5];
+
+        assert_eq!(result.len(), expected.len());
+        for (res, exp) in result.iter().zip(expected.iter()) {
+            assert_close(*res, *exp, 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_ema_series_window_equals_data_len() {
+        let data = [5.0, 10.0, 15.0];
+        let result = ema_series(&data, data.len());
+        let expected = 11.25;
+
+        assert_eq!(result.len(), 1);
+        assert_close(result[0], expected, 1e-6);
+    }
+
+    #[test]
+    fn test_ema_series_window_one() {
+        let data = [2.0, 4.0, 6.0];
+        let result = ema_series(&data, 1);
+        let expexted = [2.0, 4.0, 6.0];
+
+        assert_eq!(result, expexted);
+    }
+
+    #[test]
+    fn test_ema_series_empty_data() {
+        let data: [f64; 0] = [];
+        let result = ema_series(&data, 3);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_ema_series_window_too_large() {
+        let data = [1.0, 2.0];
+        let result = ema_series(&data, 5);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_ema_series_window_zero() {
+        let data = [1.0, 2.0, 3.0];
+        let result = ema_series(&data, 0);
+        assert!(result.is_empty());
     }
 }

@@ -1,6 +1,15 @@
 use num_traits::{Num, NumCast};
 
-/// Compute the mean (mu) of a data series.
+/// Compute the mean (μ) of a data series.
+///
+/// ```rust
+/// use quant_mathema::stats::mu;
+///
+/// let data = [1.0, 2.0, 3.0, 4.0];
+/// let mean = mu(&data);
+///
+/// assert_eq!(mean, 2.5);
+/// ```
 pub fn mu<T>(data: &[T]) -> T
 where
     T: Num + NumCast + Copy,
@@ -16,6 +25,23 @@ where
     let n = NumCast::from(data.len()).unwrap();
 
     sum / n
+}
+
+/// Compute the mean (μ) of a data series.
+///
+/// ```rust
+/// use quant_mathema::stats::mean;
+///
+/// let data = [1.0, 2.0, 3.0, 4.0];
+/// let mean = mean(&data);
+///
+/// assert_eq!(mean, 2.5);
+/// ```
+pub fn mean<T>(data: &[T]) -> T
+where
+    T: Num + NumCast + Copy,
+{
+    mu(data)
 }
 
 /// Compute the standard deviation of a numeric data series.

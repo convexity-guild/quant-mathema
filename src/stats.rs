@@ -102,7 +102,43 @@ where
     median(&sorted)
 }
 
-/// Compute the standard deviation of a numeric data series.
+/// Computes the sample variance (σ^2) of a data series.
+///
+/// NOTE: This calculates the sample standard deviation using
+/// Bessel's correction (dividing by `n - 1` instead of `n`)
+/// to reduce bias in estimation from a finite data sample.
+///
+/// # Examples
+/// ```
+/// use quant_mathema::stats::variance;
+///
+/// let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+/// let var = variance(&data);
+/// assert!((var - 2.5).abs() < 1e-6);
+/// ```
+pub fn variance<T>(data: &[T]) -> f64
+where
+    T: Num + NumCast + Copy,
+{
+    if data.is_empty() || data.len() < 2 {
+        return 0.0;
+    }
+
+    let mu = mu(data).to_f64().unwrap_or_default();
+
+    let dev_sum: f64 = data
+        .iter()
+        .map(|x| {
+            let x = x.to_f64().unwrap_or_default();
+
+            (x - mu).powi(2)
+        })
+        .sum();
+
+    dev_sum / (data.len() as f64 - 1.0)
+}
+
+/// Computes the standard deviation (σ) of a numeric data series.
 ///
 /// NOTE: This calculates the sample standard deviation using
 /// Bessel's correction (dividing by `n - 1` instead of `n`)
@@ -120,21 +156,7 @@ pub fn stdev<T>(data: &[T]) -> f64
 where
     T: Num + NumCast + Copy,
 {
-    if data.is_empty() || data.len() < 2 {
-        return 0.0;
-    }
-
-    let mu = mu(data).to_f64().unwrap_or_default();
-
-    let dev_sum = data.iter().fold(0.0, |sum, x| {
-        let x = x.to_f64().unwrap_or_default();
-
-        sum + (x - mu).powi(2)
-    });
-
-    let dev = dev_sum / (data.len() as f64 - 1.0);
-
-    dev.sqrt()
+    variance(data).sqrt()
 }
 
 #[cfg(test)]
@@ -319,5 +341,47 @@ mod tests {
         let data: [f64; 0] = [];
         let result = stdev(&data);
         assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_variance_basic_integers() {
+        let data = [1, 2, 3, 4, 5];
+        let var = variance(&data);
+        assert_close(var, 2.5, 1e-6);
+    }
+
+    #[test]
+    fn test_variance_basic_floats() {
+        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let var = variance(&data);
+        assert_close(var, 2.5, 1e-6);
+    }
+
+    #[test]
+    fn test_variance_single_element() {
+        let data = [42];
+        let var = variance(&data);
+        assert_eq!(var, 0.0);
+    }
+
+    #[test]
+    fn test_variance_empty() {
+        let data: [f64; 0] = [];
+        let var = variance(&data);
+        assert_eq!(var, 0.0);
+    }
+
+    #[test]
+    fn test_variance_duplicates() {
+        let data = [3, 3, 3, 3];
+        let var = variance(&data);
+        assert_eq!(var, 0.0);
+    }
+
+    #[test]
+    fn test_variance_negative_numbers() {
+        let data = [-1, -2, -3, -4, -5];
+        let var = variance(&data);
+        assert_close(var, 2.5, 1e-6);
     }
 }

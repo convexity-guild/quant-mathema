@@ -1,4 +1,4 @@
-use crate::stats;
+use crate::{Error, stats};
 use num_traits::{Num, NumCast, ToPrimitive};
 
 /// Compute the Simple Moving Average (SMA) of a data window.
@@ -185,6 +185,103 @@ where
         .zip(volume_data.windows(window_len))
         .map(|(data_window, volume_window)| vwma(data_window, volume_window))
         .collect()
+}
+
+// TODO: The bulk of this calculation should be seperated into a
+// smaller regression sums like function, as it will need to
+// implemented down the road for other things as well.
+//
+/// Compute the Least Squares Moving Average (LSMA) of a data window.
+///
+/// Optimized for *streaming / online* workflows where you only need the
+/// most‑recent window’s volume weighted average. For full‑series (batch)
+/// smoothing, see [`crate::smoothing::lsma_series`].
+///
+/// # Example
+/// ```
+/// use quant_mathema::smoothing::lsma;
+///
+/// let data = vec![
+///     111.50, 111.53, 111.55, 111.55, 111.56, 111.58, 111.58,
+///     111.58, 111.58, 111.59, 111.59, 111.51, 111.64, 111.70,
+/// ];
+/// let result = lsma(&data).unwrap();
+///
+/// assert!((result - 111.62).abs() < 0.1);
+/// ```
+pub fn lsma<T>(data_window: &[T]) -> Result<f64, Error>
+where
+    T: Num + NumCast + Copy,
+{
+    if data_window.len() == 1 {
+        return NumCast::from(data_window[0]).ok_or(Error::InvalidCast);
+    }
+
+    let n: f64 = NumCast::from(data_window.len()).ok_or(Error::InvalidCast)?;
+    let x_sum = data_window.iter().copied().try_fold(0.0, |sum, x| {
+        let x: f64 = NumCast::from(x).ok_or(Error::InvalidCast)?;
+        Ok(sum + x)
+    })?;
+    let t_sum = (0..data_window.len()).try_fold(0.0, |sum, t| {
+        let t: f64 = NumCast::from(t).ok_or(Error::InvalidCast)?;
+
+        Ok(sum + t)
+    })?;
+    let t_squared_sum = (0..data_window.len()).try_fold(0.0, |sum, t| {
+        let t: f64 = NumCast::from(t).ok_or(Error::InvalidCast)?;
+
+        Ok(sum + (t * t))
+    })?;
+    let x_t_sum = data_window
+        .iter()
+        .copied()
+        .enumerate()
+        .try_fold(0.0, |sum, (t, x)| {
+            let t: f64 = NumCast::from(t).ok_or(Error::InvalidCast)?;
+            let x: f64 = NumCast::from(x).ok_or(Error::InvalidCast)?;
+
+            Ok(sum + (t * x))
+        })?;
+
+    let slope_numerator = n * x_t_sum - t_sum * x_sum;
+    let slope_denominator = n * t_squared_sum - t_sum * t_sum;
+    let slope = slope_numerator / slope_denominator;
+
+    let intercept = (x_sum - slope * t_sum) / n;
+
+    let output = slope * (n - 1.0) + intercept;
+    Ok(output)
+}
+
+/// Compute the Least Squares Moving Average (LSMA) of a data window.
+///
+/// `lsma_series` is ideal for *batch* analysis and plotting.
+/// For real‑time pipelines, prefer [`crate::smoothing::lsma`].
+///
+/// # Example
+/// ```
+/// use quant_mathema::smoothing::lsma_series;
+///
+/// let data = vec![
+///     111.50, 111.53, 111.55, 111.55, 111.56, 111.58, 111.58,
+///     111.58, 111.58, 111.59, 111.59, 111.51, 111.64, 111.70,
+/// ];
+/// let result = lsma_series(&data, 5).unwrap();
+/// ```
+pub fn lsma_series<T>(data: &[T], window_len: usize) -> Result<Vec<f64>, Error>
+where
+    T: Num + NumCast + Copy,
+{
+    if data.is_empty() || window_len == 0 {
+        return Ok(Vec::new());
+    }
+
+    data.windows(window_len)
+        .try_fold(Vec::new(), |mut series, data_window| {
+            let lsma_value = lsma(data_window)?;
+            series.push(lsma_value);
+            Ok(series)
+        })
 }
 
 #[cfg(test)]
@@ -590,5 +687,121 @@ mod tests {
 
         let result = vwma_series(&price, &volume, 3);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_lsma_perfect_linear_data() {
+        let data = vec![3, 5, 7, 9, 11];
+        let result = lsma(&data).unwrap();
+
+        assert_close(result, 11.0, 1e-6);
+    }
+
+    #[test]
+    fn test_lsma_constant_data() {
+        let data = vec![5, 5, 5, 5, 5];
+        let result = lsma(&data).unwrap();
+
+        assert_close(result, 5.0, 1e-6);
+    }
+
+    #[test]
+    fn test_lsma_single_point() {
+        let data = vec![42];
+        let result = lsma(&data).unwrap();
+
+        assert_close(result, 42.0, 1e-6);
+    }
+
+    #[test]
+    fn test_lsma_floating_point_data() {
+        let data = vec![1.0, 3.0, 5.0, 7.0, 9.0];
+        let result = lsma(&data).unwrap();
+
+        assert_close(result, 9.0, 1e-6);
+    }
+
+    #[test]
+    fn test_lsma_small_random_data() {
+        let data = vec![1, 2, 4, 7];
+        let result = lsma(&data).unwrap();
+
+        assert_close(result, 6.5, 1e-6);
+    }
+
+    #[test]
+    fn test_lsma_random_data() {
+        let data = vec![
+            111.50, 111.53, 111.55, 111.55, 111.56, 111.58, 111.58, 111.58, 111.58, 111.59, 111.59,
+            111.51, 111.64, 111.70,
+        ];
+
+        let result = lsma(&data).unwrap();
+        assert_close(result, 111.62, 0.1);
+    }
+
+    #[test]
+    fn test_lsma_series_empty_data() {
+        let data: Vec<f64> = vec![];
+        let result = lsma_series(&data, 5).unwrap();
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_lsma_series_zero_window_len() {
+        let data = vec![1.0, 2.0, 3.0];
+        let result = lsma_series(&data, 0).unwrap();
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_lsma_series_window_larger_than_data() {
+        let data = vec![1.0, 2.0, 3.0];
+        let result = lsma_series(&data, 5).unwrap();
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_lsma_series_exact_data_len_window() {
+        let data = vec![1.0, 2.0, 3.0];
+        let result = lsma_series(&data, 3).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_close(result[0], 3.0, 1e-6);
+    }
+
+    #[test]
+    fn test_lsma_series_sliding_windows() {
+        let data = vec![1.0, 2.0, 4.0, 7.0, 11.0];
+        let result = lsma_series(&data, 3).unwrap();
+
+        assert_eq!(result.len(), 3);
+
+        assert_close(result[0], 3.83, 1e-2);
+        assert_close(result[1], 6.83, 1e-2);
+        assert_close(result[2], 10.83, 1e-2);
+    }
+
+    #[test]
+    fn test_lsma_series_random_data() {
+        let data = vec![
+            111.50, 111.53, 111.55, 111.55, 111.56, 111.58, 111.58, 111.58, 111.58, 111.59, 111.59,
+            111.51, 111.64, 111.70,
+        ];
+
+        let window_len = 5;
+        let result = lsma_series(&data, window_len).unwrap();
+
+        assert_eq!(result.len(), data.len() - window_len + 1);
+
+        let expected = vec![
+            111.57, 111.58, 111.58, 111.59, 111.59, 111.59, 111.59, 111.54, 111.58, 111.66,
+        ];
+
+        assert_eq!(result.len(), expected.len());
+
+        for (ith_result, ith_expected) in result.iter().copied().zip(expected) {
+            assert_close(ith_result, ith_expected, 1e-2);
+        }
     }
 }

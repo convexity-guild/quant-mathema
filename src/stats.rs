@@ -1,3 +1,5 @@
+use std::ops::Sub;
+
 use num_traits::{Num, NumCast};
 
 /// Compute the mean (μ) of a data series.
@@ -100,6 +102,76 @@ where
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
     median(&sorted)
+}
+
+/// Computes the minimum value in a data series.
+///
+/// NOTE: Returns `None` if the input slice is empty.
+///
+/// # Examples
+/// ```
+/// use quant_mathema::stats::min;
+///
+/// let data = [4.0, 2.0, 7.0, 1.0, 9.0];
+/// let result = min(&data);
+/// assert_eq!(result, Some(1.0));
+/// ```
+pub fn min<T>(data: &[T]) -> Option<T>
+where
+    T: PartialOrd + Copy,
+{
+    let mut iter = data.iter().copied();
+    let init_min = iter.next()?;
+
+    Some(iter.fold(init_min, |min, x| if x < min { x } else { min }))
+}
+
+/// Computes the maximum value in a data series.
+///
+/// NOTE: Returns `None` if the input slice is empty.
+///
+/// # Examples
+/// ```
+/// use quant_mathema::stats::max;
+///
+/// let data = [4.0, 2.0, 9.0, 1.0, 7.0];
+/// let result = max(&data);
+/// assert_eq!(result, Some(9.0));
+/// ```
+pub fn max<T>(data: &[T]) -> Option<T>
+where
+    T: PartialOrd + Copy,
+{
+    let mut iter = data.iter().copied();
+    let init_max = iter.next()?;
+
+    Some(iter.fold(init_max, |max, x| if x > max { x } else { max }))
+}
+
+/// Computes the range  a data series.
+///
+/// NOTE: Returns `None` if the input slice is empty.
+///
+/// # Examples
+/// ```
+/// use quant_mathema::stats::range;
+///
+/// let data = [4.0, 2.0, 9.0, 1.0, 7.0];
+/// let result = range(&data);
+/// assert_eq!(result, Some(8.0));
+/// ```
+pub fn range<T>(data: &[T]) -> Option<T>
+where
+    T: PartialOrd + Copy + Sub<Output = T>,
+{
+    if data.is_empty() {
+        return None;
+    }
+
+    let minimum = min(data).unwrap();
+    let maximum = max(data).unwrap();
+
+    Some(maximum - minimum)
 }
 
 /// Computes the sample variance (σ^2) of a data series.
@@ -383,5 +455,114 @@ mod tests {
         let data = [-1, -2, -3, -4, -5];
         let var = variance(&data);
         assert_close(var, 2.5, 1e-6);
+    }
+
+    #[test]
+    fn test_min_with_integers() {
+        let data = [4, 2, 7, 1, 9];
+        assert_eq!(min(&data), Some(1));
+    }
+
+    #[test]
+    fn test_min_with_floats() {
+        let data = [3.5, 2.2, 5.1, 0.1, -4.7];
+        assert_eq!(min(&data), Some(-4.7));
+    }
+
+    #[test]
+    fn test_min_with_one_element() {
+        let data = [42];
+        assert_eq!(min(&data), Some(42));
+    }
+
+    #[test]
+    fn test_min_with_empty_slice() {
+        let data: [i32; 0] = [];
+        assert_eq!(min(&data), None);
+    }
+
+    #[test]
+    fn test_min_with_duplicates() {
+        let data = [5, 5, 5, 5];
+        assert_eq!(min(&data), Some(5));
+    }
+
+    #[test]
+    fn test_min_with_negatives() {
+        let data = [-10, -20, -5, -30];
+        assert_eq!(min(&data), Some(-30));
+    }
+
+    #[test]
+    fn test_max_with_integers() {
+        let data = [4, 2, 7, 1, 9];
+        assert_eq!(max(&data), Some(9));
+    }
+
+    #[test]
+    fn test_max_with_floats() {
+        let data = [3.5, 2.2, 5.1, 0.1, -4.7];
+        assert_eq!(max(&data), Some(5.1));
+    }
+
+    #[test]
+    fn test_max_with_one_element() {
+        let data = [42];
+        assert_eq!(max(&data), Some(42));
+    }
+
+    #[test]
+    fn test_max_with_empty_slice() {
+        let data: [i32; 0] = [];
+        assert_eq!(max(&data), None);
+    }
+
+    #[test]
+    fn test_max_with_duplicates() {
+        let data = [5, 5, 5, 5];
+        assert_eq!(max(&data), Some(5));
+    }
+
+    #[test]
+    fn test_max_with_negatives() {
+        let data = [-10, -20, -5, -30];
+        assert_eq!(max(&data), Some(-5));
+    }
+
+    #[test]
+    fn test_range_with_integers() {
+        let data = [4, 2, 7, 1, 9];
+        assert_eq!(range(&data), Some(8));
+    }
+
+    #[test]
+    fn test_range_with_floats() {
+        let data = [3.5, 2.2, 5.1, 0.1, -4.7];
+        let result = range(&data).unwrap();
+        assert_close(result, 9.8, 1e-10);
+    }
+
+    #[test]
+    fn test_range_with_one_element() {
+        let data = [42];
+        assert_eq!(range(&data), Some(0));
+    }
+
+    #[test]
+    fn test_range_with_empty_slice() {
+        let data: [i32; 0] = [];
+        assert_eq!(range(&data), None);
+    }
+
+    #[test]
+    fn test_range_with_duplicates() {
+        let data = [5, 5, 5, 5];
+        assert_eq!(range(&data), Some(0));
+    }
+
+    #[test]
+    fn test_range_with_negatives() {
+        let data = [-10, -20, -5, -30];
+        assert_eq!(range(&data), Some(25));
     }
 }

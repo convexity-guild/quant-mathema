@@ -1,4 +1,4 @@
-use num_traits::{Num, NumCast};
+use num_traits::{Num, NumCast, ToPrimitive};
 use std::ops::Sub;
 
 /// Compute the mean (μ) of a data series.
@@ -228,6 +228,73 @@ where
     T: Num + NumCast + Copy,
 {
     variance(data).sqrt()
+}
+
+/// Computes the z-score of a numeric datapoint value.
+///
+/// Optimized for *streaming / online* workflows where you only need the
+/// most‑recent window’s average. For full‑series (batch) computation, see
+/// [`crate::stats::z_scores`].
+///
+/// The z-score measures how far a datapoint value is
+/// from the mean using a standardized scale.
+///
+/// # Example
+/// ```
+/// use quant_mathema::stats::z_score;
+///
+/// let z = z_score(10.0f64, 5.0f64, 2.0f64);
+/// assert_eq!(z, Some(2.5));
+/// ```
+pub fn z_score<T, F>(datapoint: T, mu: F, sigma: F) -> Option<f64>
+where
+    T: Num + NumCast + Copy,
+    F: Into<f64> + Copy,
+{
+    let x_f64 = datapoint.to_f64()?;
+    Some((x_f64 - mu.into()) / sigma.into())
+}
+
+/// Computes the z-scores for a numeric data series.
+///
+/// `z_scores` is ideal for *batch* computation and analysis.
+/// For real‑time pipelines, prefer [`crate::stats::z_score`].
+///
+/// The z-score measures how far a datapoint value is from
+/// the mean using a standardized scale.
+///
+/// # Example
+/// ```
+/// use quant_mathema::stats::z_scores;
+///
+/// let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+/// let stdev = 2.5f64.sqrt();
+/// let expected = [
+///     (1.0 - 3.0) / stdev,
+///     (2.0 - 3.0) / stdev,
+///     (3.0 - 3.0) / stdev,
+///     (4.0 - 3.0) / stdev,
+///     (5.0 - 3.0) / stdev,
+/// ];
+///
+/// if let Some(scores) = z_scores(&data) {
+///     for (actual, expected) in scores.into_iter().zip(expected.into_iter()) {
+///         assert!((actual - expected).abs() < 1e-6);
+///     }
+/// }
+/// ```
+pub fn z_scores<T>(data: &[T]) -> Option<Vec<f64>>
+where
+    T: Num + NumCast + Copy,
+{
+    if data.is_empty() {
+        return None;
+    }
+
+    let mu = mu(data).to_f64()?;
+    let sigma = stdev(data).to_f64()?;
+
+    data.iter().map(|x| z_score(*x, mu, sigma)).collect()
 }
 
 /// Computes the normalized Shannon entropy of a numeric data series.
@@ -625,6 +692,64 @@ mod tests {
     fn test_range_with_negatives() {
         let data = [-10, -20, -5, -30];
         assert_eq!(range(&data), Some(25));
+    }
+
+    #[test]
+    fn test_z_score_f64_inputs() {
+        let z = z_score(10.0f64, 5.0f64, 2.0f64);
+        assert_eq!(z, Some(2.5));
+    }
+
+    #[test]
+    fn test_z_score_f32_inputs() {
+        let z = z_score(10.0f32, 5.0f32, 2.0f32);
+        assert_eq!(z, Some(2.5));
+    }
+
+    #[test]
+    fn test_z_score_integer_datapoint() {
+        let z = z_score(10i32, 5.0f64, 2.0f64);
+        assert_eq!(z, Some(2.5));
+    }
+
+    #[test]
+    fn test_z_score_zero_sigma() {
+        let z = z_score(10.0f64, 5.0f64, 0.0f64);
+        assert!(z.unwrap().is_infinite());
+    }
+
+    #[test]
+    fn test_z_scores_precise() {
+        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+
+        let stdev = 2.5f64.sqrt();
+        let expected = [
+            (1.0 - 3.0) / stdev,
+            (2.0 - 3.0) / stdev,
+            (3.0 - 3.0) / stdev,
+            (4.0 - 3.0) / stdev,
+            (5.0 - 3.0) / stdev,
+        ];
+
+        let result = z_scores(&data).unwrap();
+
+        for (actual, expected) in result.into_iter().zip(expected.into_iter()) {
+            assert_close(actual, expected, 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_z_scores_symmetric_centered() {
+        let data = [-2.0, -1.0, 0.0, 1.0, 2.0];
+
+        let stdev = 2.5f64.sqrt();
+        let expected = [-2.0 / stdev, -1.0 / stdev, 0.0, 1.0 / stdev, 2.0 / stdev];
+
+        let result = z_scores(&data).unwrap();
+
+        for (actual, expected) in result.into_iter().zip(expected.into_iter()) {
+            assert_close(actual, expected, 1e-10);
+        }
     }
 
     #[test]

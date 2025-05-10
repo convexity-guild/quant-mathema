@@ -173,6 +173,58 @@ where
     Some(maximum - minimum)
 }
 
+/// Computes the 1st, 2nd, and 3rd quartiles of a numeric data series.
+///
+/// This function uses linear interpolation to estimate the 25th, 50th, and 75th
+/// percentiles based on the formula `position = p * (n - 1)`. Where `p` is the
+/// current percentile (i.e: 0.25 for 25th, 0.50 for 50th, 0.75 for 75th percentiles).
+///
+/// # Example
+/// ```
+/// use quant_mathema::stats::quartiles;
+///
+/// let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+/// if let Some((q1, q2, q3)) = quartiles(&data) {
+///     assert_eq!(q2, 3.5); // Median
+/// }
+/// ```
+pub fn quartiles<T>(data: &[T]) -> Option<(T, T, T)>
+where
+    T: Num + NumCast + Copy + PartialOrd,
+{
+    if data.is_empty() {
+        return None;
+    }
+
+    let mut sorted = data.to_vec();
+    if sorted
+        .iter()
+        .any(|x| x.to_f64().is_some_and(|x| x.is_nan()))
+    {
+        return None;
+    };
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let n = sorted.len();
+    let get_quantile = |p: f64| -> Option<T> {
+        let idx = p * (n - 1) as f64;
+        let idx_floor = idx.floor();
+        let weight = idx - idx_floor;
+
+        let lower = sorted.get(idx_floor as usize)?.to_f64()?;
+        let upper = sorted.get(idx.ceil() as usize)?.to_f64()?;
+        let interpolated = lower + weight * (upper - lower);
+
+        NumCast::from(interpolated)
+    };
+
+    Some((
+        get_quantile(0.25)?,
+        get_quantile(0.50)?,
+        get_quantile(0.75)?,
+    ))
+}
+
 /// Computes the sample variance (σ^2) of a data series.
 ///
 /// NOTE: This calculates the sample standard deviation using
@@ -692,6 +744,57 @@ mod tests {
     fn test_range_with_negatives() {
         let data = [-10, -20, -5, -30];
         assert_eq!(range(&data), Some(25));
+    }
+
+    #[test]
+    fn test_quartiles_even_sized_data() {
+        let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let (q1, q2, q3) = quartiles(&data).unwrap();
+
+        assert_close(q1, 2.25, 1e-10);
+        assert_close(q2, 3.5, 1e-10);
+        assert_close(q3, 4.75, 1e-10);
+    }
+
+    #[test]
+    fn test_quartiles_odd_sized_data() {
+        let data = [10.0, 20.0, 30.0, 40.0, 50.0];
+        let (q1, q2, q3) = quartiles(&data).unwrap();
+
+        assert_eq!(q1, 20.0);
+        assert_eq!(q2, 30.0);
+        assert_eq!(q3, 40.0);
+    }
+
+    #[test]
+    fn test_quartiles_empty_input() {
+        let data: [f64; 0] = [];
+        assert_eq!(quartiles(&data), None);
+    }
+
+    #[test]
+    fn test_quartiles_nan_in_input() {
+        let data = [1.0, 2.0, f64::NAN, 4.0];
+        assert_eq!(quartiles(&data), None);
+    }
+
+    #[test]
+    fn test_quartiles_all_same_values() {
+        let data = [42.0, 42.0, 42.0, 42.0, 42.0];
+        let (q1, q2, q3) = quartiles(&data).unwrap();
+        assert_eq!(q1, 42.0);
+        assert_eq!(q2, 42.0);
+        assert_eq!(q3, 42.0);
+    }
+
+    #[test]
+    fn test_quartiles_unsorted_input() {
+        let data = [9.0, 3.0, 1.0, 10.0, 5.0, 6.0, 2.0, 4.0, 8.0, 7.0];
+        let (q1, q2, q3) = quartiles(&data).unwrap();
+
+        assert_close(q1, 3.25, 1e-10);
+        assert_close(q2, 5.5, 1e-10);
+        assert_close(q3, 7.75, 1e-10);
     }
 
     #[test]

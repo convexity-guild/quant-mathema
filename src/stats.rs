@@ -225,6 +225,31 @@ where
     ))
 }
 
+/// Computes the interquartile range (IQR) of a numeric data series.
+///
+/// The IQR is the difference between the 75th percentile and the 25th
+/// percentile of a data series, and a measure for the natural spread.
+///
+/// # Example
+/// ```
+/// use quant_mathema::stats::interquartile_range;
+///
+/// let data = [10, 20, 30, 40, 50];
+/// if let Some(iqr) = interquartile_range(&data) {
+///     assert_eq!(iqr, 20);
+/// }
+///```
+pub fn interquartile_range<T>(data: &[T]) -> Option<T>
+where
+    T: Num + NumCast + Copy + PartialOrd,
+{
+    if let Some((q1, _, q3)) = quartiles(data) {
+        Some(q3 - q1)
+    } else {
+        None
+    }
+}
+
 /// Computes the sample variance (σ^2) of a data series.
 ///
 /// NOTE: This calculates the sample standard deviation using
@@ -795,6 +820,48 @@ mod tests {
         assert_close(q1, 3.25, 1e-10);
         assert_close(q2, 5.5, 1e-10);
         assert_close(q3, 7.75, 1e-10);
+    }
+
+    #[test]
+    fn test_iqr_empty() {
+        let data: [f64; 0] = [];
+        assert_eq!(interquartile_range(&data), None);
+    }
+
+    #[test]
+    fn test_iqr_single_element() {
+        let data = [42.0];
+        assert_eq!(interquartile_range(&data), Some(0.0));
+    }
+
+    #[test]
+    fn test_iqr_even_length() {
+        let data = [1.0, 2.0, 3.0, 4.0];
+        let result = interquartile_range(&data);
+        assert_eq!(result, Some(1.5));
+    }
+
+    #[test]
+    fn test_iqr_odd_length() {
+        let data = [
+            7.0, 15.0, 36.0, 39.0, 40.0, 41.0, 42.0, 43.0, 47.0, 49.0, 50.0,
+        ];
+        let result = interquartile_range(&data);
+        assert_eq!(result, Some(7.5));
+    }
+
+    #[test]
+    fn test_iqr_unsorted() {
+        let data = [5.0, 1.0, 3.0, 2.0, 4.0];
+        let result = interquartile_range(&data);
+        assert_eq!(result, Some(2.0));
+    }
+
+    #[test]
+    fn test_iqr_integers() {
+        let data = [10, 20, 30, 40, 50];
+        let result = interquartile_range(&data);
+        assert_eq!(result, Some(20));
     }
 
     #[test]

@@ -90,22 +90,29 @@ where
 /// use quant_mathema::smoothing::ema_series;
 ///
 /// let data = [1.0, 2.0, 3.0, 4.0];
-/// let result = ema_series(&data, 2);
-/// let expected = vec![1.6666667, 2.6666667, 3.6666667];
-///
-/// for (a, b) in result.iter().zip(expected.iter()) {
-///     assert!((a - b).abs() < 1e-6);
-/// }
+/// let ema_data = ema_series(&data, 2);
 /// ```
 pub fn ema_series<T>(data: &[T], window_len: usize) -> Vec<f64>
 where
     T: Num + NumCast + Copy,
 {
+    let mut ema_values: Vec<f64> = Vec::with_capacity(data.len());
+
     if window_len == 0 || data.len() < window_len {
         return Vec::new();
     }
 
-    data.windows(window_len).map(ema).collect()
+    let alpha = 2.0 / (window_len as f64 + 1.0);
+    let mut ema = NumCast::from(data[0]).unwrap_or(0.0);
+    ema_values.push(ema);
+
+    for &x in &data[1..] {
+        let val = NumCast::from(x).unwrap_or(0.0);
+        ema = alpha * val + (1.0 - alpha) * ema;
+        ema_values.push(ema);
+    }
+
+    ema_values
 }
 
 /// Compute the Volume Weighted Moving Average (VWMA) of a data window.
@@ -506,7 +513,7 @@ mod tests {
     fn test_ema_series_basic_float() {
         let data = [1.0, 2.0, 3.0, 4.0, 5.0];
         let result = ema_series(&data, 3);
-        let expected = [2.25, 3.25, 4.25];
+        let expected = [1.0, 1.5, 2.25, 3.125, 4.0625]; // recursive EMA
 
         assert_eq!(result.len(), expected.len());
         for (res, exp) in result.iter().zip(expected.iter()) {
@@ -518,7 +525,7 @@ mod tests {
     fn test_ema_series_int() {
         let data = [10, 20, 30, 40, 50, 60];
         let result = ema_series(&data, 3);
-        let expected = [22.5, 32.5, 42.5, 52.5];
+        let expected = [10.0, 15.0, 22.5, 31.25, 40.625, 50.3125];
 
         assert_eq!(result.len(), expected.len());
         for (res, exp) in result.iter().zip(expected.iter()) {
@@ -530,19 +537,21 @@ mod tests {
     fn test_ema_series_window_equals_data_len() {
         let data = [5.0, 10.0, 15.0];
         let result = ema_series(&data, data.len());
-        let expected = 11.25;
+        let expected = [5.0, 7.5, 11.25];
 
-        assert_eq!(result.len(), 1);
-        assert_close(result[0], expected, 1e-6);
+        assert_eq!(result.len(), expected.len());
+        for (res, exp) in result.iter().zip(expected.iter()) {
+            assert_close(*res, *exp, 1e-6);
+        }
     }
 
     #[test]
     fn test_ema_series_window_one() {
         let data = [2.0, 4.0, 6.0];
         let result = ema_series(&data, 1);
-        let expexted = [2.0, 4.0, 6.0];
+        let expected = [2.0, 4.0, 6.0]; // alpha = 1.0 → EMA = raw data
 
-        assert_eq!(result, expexted);
+        assert_eq!(result, expected);
     }
 
     #[test]

@@ -7,3 +7,6 @@
 
 <p align="center">⚠️ Early Development 🚧</p>
 <p align="center">A library of useful functions and primitives for quantitative finance.</p>
+
+## License
+This library is licensed under the [Apache License 2.0](LICENSE).

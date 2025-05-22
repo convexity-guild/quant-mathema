@@ -1,6 +1,13 @@
 [package]
 name = "quant-mathema"
-version = "0.1.0"
+authors = ["Antonio Hickey <a.hickey@convexityguild.com>"]
+description = "Library of functions and primitives for quantative finance."
+documentation = "https://docs.rs/quant-mathema/latest/quant-mathema/index.html"
+homepage = "https://crates.io/crates/quant-mathema"
+repository = "https://github.com/convexity-guild/quant-mathema"
+keywords = ["quant", "finance", "quantative-finance", "math"]
+license = "Apache-2.0"
+version = "0.0.1"
 edition = "2024"
 
 [dependencies]

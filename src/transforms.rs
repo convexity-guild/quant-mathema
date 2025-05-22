@@ -16,6 +16,13 @@ pub enum TransformType {
     /// which can be useful for stabilizing variance, normalizing skewed
     /// distributions, and linearizing exponential relationships.
     Log,
+
+    /// Applies the hyperbolic tangent transformation over the data.
+    ///
+    /// This will squash values into the bounded range of (-1, 1)
+    /// preserving the sign and relative magnitude which can be useful
+    /// for dampening tails and emphasizing variations near zero.
+    Tanh,
 }
 
 /// Applies a specified transformation to a numeric data series.
@@ -29,6 +36,8 @@ pub enum TransformType {
 ///
 /// let data = vec![0.0, 1.0, 4.0, 9.0, 16.0];
 /// let data_sqrt_trans = apply_transform(&data, TransformType::Sqrt);
+/// let data_log_trans = apply_transform(&data, TransformType::Log);
+/// let data_tanh_trans = apply_transform(&data, TransformType::Tanh);
 /// ```
 pub fn apply_transform<T>(data: &[T], transform_type: TransformType) -> Vec<f64>
 where
@@ -37,6 +46,7 @@ where
     match transform_type {
         TransformType::Sqrt => sqrt_transform(data),
         TransformType::Log => log_transform(data),
+        TransformType::Tanh => tanh_transform(data),
     }
 }
 
@@ -102,6 +112,33 @@ where
             let x_f: f64 = NumCast::from(x)?;
             if x_f > 0.0 { Some(x_f.ln()) } else { None }
         })
+        .collect()
+}
+
+/// Applies the hyperbolic tangent transformation to a numeric data series.
+///
+/// This is a sigmoid family transform, so it will produce an S curve
+/// squashing values into the bounded range of (-1, 1) preserving the
+/// sign and relative magnitude which can be useful for dampening tails
+/// and emphasizing variations near zero.
+///
+/// # Example
+/// ```
+/// use quant_mathema::transforms::tanh_transform;
+///
+/// let data = vec![1.0, 2.0, 10.0, 100.0];
+/// let data_log_trans = tanh_transform(&data);
+/// ```
+pub fn tanh_transform<T>(data: &[T]) -> Vec<f64>
+where
+    T: Num + NumCast + Copy,
+{
+    if data.is_empty() {
+        return Vec::new();
+    }
+
+    data.iter()
+        .filter_map(|&x| NumCast::from(x).map(f64::tanh))
         .collect()
 }
 
@@ -192,6 +229,43 @@ mod tests {
     fn test_log_transform_empty_input() {
         let data: Vec<f64> = vec![];
         let result = log_transform(&data);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_tanh_transform_with_f64() {
+        let data: Vec<f64> = vec![0.0, 1.0, -1.0, 10.0, -10.0];
+        let expected: Vec<f64> = data.iter().map(|x| x.tanh()).collect();
+        let result = tanh_transform(&data);
+
+        for (a, b) in result.iter().zip(expected.iter()) {
+            assert_close(*a, *b, 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_tanh_transform_with_integers() {
+        let data = vec![-3, -1, 0, 1, 3];
+        let expected: Vec<f64> = data.iter().map(|&x| (x as f64).tanh()).collect();
+        let result = tanh_transform(&data);
+
+        for (a, b) in result.iter().zip(expected.iter()) {
+            assert_close(*a, *b, 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_tanh_transform_extremes() {
+        let data = vec![1000.0, -1000.0];
+        let result = tanh_transform(&data);
+        assert_close(result[0], 1.0, 1e-6);
+        assert_close(result[1], -1.0, 1e-6);
+    }
+
+    #[test]
+    fn test_tanh_transform_empty_input() {
+        let data: Vec<f64> = vec![];
+        let result = tanh_transform(&data);
         assert!(result.is_empty());
     }
 }

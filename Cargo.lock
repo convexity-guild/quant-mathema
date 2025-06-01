@@ -10,9 +10,9 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "matrix-oxide"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17298f1ca52ad16ba38fb1eaca3f4687b320789faea8975f0b41981a839ef227"
+checksum = "8841727ebc8ed5f5f83ef4c793e1bb7a234be123030982a8c0690cd6e295d1d5"
 
 [[package]]
 name = "num-traits"

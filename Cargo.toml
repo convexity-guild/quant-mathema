@@ -12,4 +12,4 @@ edition = "2024"
 
 [dependencies]
 num-traits = "0.2"
-matrix-oxide = "0.1.2"
+matrix-oxide = "0.1.3"

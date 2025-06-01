@@ -1,4 +1,6 @@
 use crate::stats::{max, min};
+use crate::util::bin_series;
+use matrix_oxide::Matrix;
 use num_traits::{Num, NumCast};
 
 /// Computes the normalized Shannon entropy of a numeric data series.
@@ -63,6 +65,88 @@ where
     Some(relative_entropy)
 }
 
+/// Computes the mutual information (MI) between two numeric data series.
+///
+/// Mutual information quantifies how much knowing one of the variables
+/// reduces uncertainty about the other. It measures the amount of
+/// shared information between `a` and `b`.
+///
+/// - A value of `0.0` indicates complete independence.
+/// - A higher value indicates stronger dependency or correlation.
+/// - The MI is expressed in **nats** (natural log base).
+///
+/// This implementation uses equal-width binning to discretize the
+/// continuous or numeric inputs before computing joint and marginal
+/// distributions.
+///
+/// # Examples
+/// ```
+/// use quant_mathema::info_theory::mutual_information;
+///
+/// let a = [1.0, 2.0, 3.0, 4.0, 5.0];
+/// let b = [5.0, 4.0, 3.0, 2.0, 1.0];
+///
+/// if let Some(mi) = mutual_information(&a, &b, 5) {
+///     assert!(mi > 0.0);
+/// }
+/// ```
+pub fn mutual_information<T>(a: &[T], b: &[T], n_bins: usize) -> Option<f64>
+where
+    T: Num + NumCast + Copy + PartialOrd,
+{
+    if a.len() != b.len() || a.is_empty() || b.is_empty() {
+        return None;
+    }
+
+    let a_bins = bin_series(a, n_bins)?;
+    let b_bins = bin_series(b, n_bins)?;
+
+    let mut joint = Matrix::<f64>::new(n_bins, n_bins);
+    a_bins.iter().zip(b_bins).for_each(|(i, j)| {
+        if let Some(cell) = joint.get_mut(*i, j) {
+            *cell += 1.0;
+        }
+    });
+
+    let total = joint.sum();
+    if total == 0.0 {
+        return Some(0.0);
+    }
+
+    (0..joint.row_size).for_each(|i| {
+        (0..joint.col_size).for_each(|j| {
+            if let Some(cell) = joint.get_mut(i, j) {
+                *cell /= total;
+            }
+        })
+    });
+
+    let mut px = vec![0.0; joint.row_size];
+    let mut py = vec![0.0; joint.col_size];
+
+    (0..joint.row_size).for_each(|i| {
+        (0..joint.col_size).for_each(|j| {
+            if let Some(cell) = joint.get_mut(i, j) {
+                px[i] += *cell;
+                py[j] += *cell;
+            }
+        })
+    });
+
+    let mut mi = 0.0;
+    (0..n_bins).for_each(|i| {
+        (0..n_bins).for_each(|j| {
+            if let Some(pxy) = joint.get(i, j) {
+                if pxy > &0.00 {
+                    mi += pxy * (pxy / (px[i] * py[j])).ln()
+                }
+            }
+        })
+    });
+
+    Some(mi)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,5 +191,58 @@ mod tests {
         let data = [0.0, 1.0, 2.0, 3.0];
         let entropy = normalized_entropy(&data, 4);
         assert!((entropy.unwrap() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_mi_identical_inputs() {
+        let a = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let mi = mutual_information(&a, &a, 5).unwrap();
+        assert!(mi > 0.0, "MI of identical inputs should be > 0");
+    }
+
+    #[test]
+    fn test_mi_inverse_inputs() {
+        let a = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let b: Vec<_> = a.iter().rev().cloned().collect();
+        let mi = mutual_information(&a, &b, 5).unwrap();
+        assert!(mi > 0.0, "MI of reversed input should be > 0");
+    }
+
+    #[test]
+    fn test_mi_constant_input() {
+        let a = vec![1; 100];
+        let b: Vec<_> = (0..100).collect();
+        let mi = mutual_information(&a, &b, 5).unwrap();
+        assert!(
+            (mi - 0.0).abs() < 1e-10,
+            "MI should be ~0 when one series is constant"
+        );
+    }
+
+    #[test]
+    fn test_mi_random_noise() {
+        let a = vec![1, 3, 5, 2, 4, 6, 8, 10, 7, 9];
+        let b = vec![10, 8, 6, 9, 7, 5, 3, 1, 4, 2];
+        let mi = mutual_information(&a, &b, 5).unwrap();
+        assert!(mi >= 0.0, "MI must be non-negative");
+    }
+
+    #[test]
+    fn test_mi_different_lengths() {
+        let a = vec![1, 2, 3];
+        let b = vec![4, 5];
+        assert!(
+            mutual_information(&a, &b, 3).is_none(),
+            "Mismatched input lengths should return None"
+        );
+    }
+
+    #[test]
+    fn test_mi_symmetry() {
+        let a = vec![1, 2, 3, 4, 5];
+        let b = vec![5, 4, 3, 2, 1];
+        let mi_ab = mutual_information(&a, &b, 4).unwrap();
+        let mi_ba = mutual_information(&b, &a, 4).unwrap();
+        assert!((mi_ab - mi_ba).abs() < 1e-10, "MI should be symmetric");
     }
 }

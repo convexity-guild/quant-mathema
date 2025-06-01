@@ -13,3 +13,6 @@ pub mod transforms;
 
 /// Information Thoery functions
 pub mod info_theory;
+
+/// Utility functions
+mod util;

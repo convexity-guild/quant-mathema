@@ -10,3 +10,6 @@ pub use error::Error;
 
 /// Transformation functions
 pub mod transforms;
+
+/// Information Thoery functions
+pub mod info_theory;
